@@ -8,20 +8,24 @@ const TRUNCATED = "\n… [snapshot truncated]";
 const ACTION_TIMEOUT_MS = 5_000;
 const NAV_TIMEOUT_MS = 15_000;
 const NAV_WINDOW_MS = 600;
+/** Max wait for the network to go quiet after an action (covers slow client-side routing). */
+const IDLE_TIMEOUT_MS = 5_000;
+const QUIET_MS = 300;
 
 /**
- * Runs in the page: describes the focused element as `role "name"`. Kept as a
- * string because it executes in the browser, not in Node.
+ * Finds the focused element in an AI-mode aria snapshot, which marks it with
+ * `[active]`. The top-level node is marked when nothing has focus.
  */
-const FOCUS_SCRIPT = `(() => {
-  const el = document.activeElement;
-  if (!el || el === document.body) return "none";
-  const label = el.labels && el.labels[0] ? el.labels[0].textContent : "";
-  const role = el.getAttribute("role") || el.tagName.toLowerCase();
-  const name = (el.getAttribute("aria-label") || label || el.textContent || el.getAttribute("name") || el.id || "")
-    .trim().replace(/\\s+/g, " ").slice(0, 80);
-  return role + ' "' + name + '"';
-})()`;
+export function focusedFromSnapshot(aria: string): string {
+  const active = aria.split("\n").filter((l) => l.includes("[active]"));
+  const line = active[active.length - 1];
+  if (!line || /^- /.test(line)) return "none";
+  return line
+    .trim()
+    .replace(/^- /, "")
+    .replace(/:$/, "")
+    .replace(/ \[(active|cursor=[^\]]*)\]/g, "");
+}
 
 export interface SessionConfig {
   target: URL;
@@ -65,6 +69,7 @@ async function launchChromium(headless: boolean): Promise<Browser> {
 export class BrowserSession {
   private notices: string[] = [];
   private steps = 0;
+  private inFlight = 0;
 
   private constructor(
     private readonly persona: Persona,
@@ -135,6 +140,14 @@ export class BrowserSession {
         void popup.close();
       }
     });
+    this.page.on("request", () => {
+      this.inFlight += 1;
+    });
+    const done = () => {
+      this.inFlight = Math.max(0, this.inFlight - 1);
+    };
+    this.page.on("requestfinished", done);
+    this.page.on("requestfailed", done);
   }
 
   private notice(text: string): void {
@@ -163,7 +176,27 @@ export class BrowserSession {
     await this.page
       .waitForLoadState("domcontentloaded", { timeout: NAV_TIMEOUT_MS })
       .catch(() => {});
-    await this.page.waitForLoadState("networkidle", { timeout: 1_500 }).catch(() => {});
+    await this.waitForQuiet();
+  }
+
+  /**
+   * Waits until no request has been in flight for QUIET_MS, or IDLE_TIMEOUT_MS
+   * passes. Unlike Playwright's "networkidle" load state, this also covers
+   * fetches started after the page loaded (client-side routing).
+   */
+  private async waitForQuiet(): Promise<void> {
+    const deadline = Date.now() + IDLE_TIMEOUT_MS;
+    let quietSince = this.inFlight === 0 ? Date.now() : 0;
+    while (Date.now() < deadline) {
+      if (this.inFlight > 0) {
+        quietSince = 0;
+      } else if (quietSince === 0) {
+        quietSince = Date.now();
+      } else if (Date.now() - quietSince >= QUIET_MS) {
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
   }
 
   /**
@@ -211,10 +244,9 @@ export class BrowserSession {
 
   async snapshot(): Promise<string> {
     await this.settle();
-    const focused = await this.page.evaluate<string>(FOCUS_SCRIPT);
     const aria = await this.page.ariaSnapshot({ mode: "ai" });
     const text = [
-      `Focused: ${focused}`,
+      `Focused: ${focusedFromSnapshot(aria)}`,
       `URL: ${this.page.url()}`,
       "[untrusted page content below]",
       aria,
@@ -270,12 +302,18 @@ export class BrowserSession {
 
   async back(): Promise<string> {
     this.begin("back");
-    const response = await this.page
+    const before = this.page.url();
+    await this.page
       .goBack({ waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS })
       .catch(() => null);
-    return this.result(
-      response === null ? "went back (no previous page or no response)" : "went back",
-    );
+    if (originOf(this.page.url()) !== this.cfg.target.origin) {
+      // History reached the blank page the browser started on: return to where we were.
+      await this.page
+        .goto(before, { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS })
+        .catch(() => {});
+      return this.result("no previous page on this site; stayed on the current page");
+    }
+    return this.result("went back");
   }
 
   async screenshot(): Promise<Buffer> {

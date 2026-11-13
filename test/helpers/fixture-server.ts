@@ -28,6 +28,12 @@ export async function startFixtureServer(): Promise<FixtureServer> {
       res.end("<!doctype html><title>Sent</title><h1>Thanks, message sent</h1>");
       return;
     }
+    if (url.pathname === "/slow") {
+      await new Promise((resolve) => setTimeout(resolve, 2_500));
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end("{}");
+      return;
+    }
     const name = url.pathname === "/" ? "index.html" : url.pathname.slice(1);
     const file = path.join(siteDir, path.basename(name));
     try {

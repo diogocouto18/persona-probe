@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>SPA</title>
+  </head>
+  <body>
+    <main>
+      <h1 id="title">Client-side app</h1>
+      <a href="/spa-done" id="go">Slow client link</a>
+    </main>
+    <script>
+      document.getElementById("go").addEventListener("click", async (event) => {
+        event.preventDefault();
+        await fetch("/slow");
+        history.pushState({}, "", "/spa-done");
+        document.getElementById("title").textContent = "Done";
+      });
+    </script>
+  </body>
+</html>

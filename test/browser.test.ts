@@ -166,16 +166,31 @@ describe("BrowserSession", () => {
     expect(server.requests.some((r) => r.method === "POST")).toBe(true);
   });
 
-  it("explains when there is no previous page", async () => {
+  it("stays on the site when going back from the first page", async () => {
     session = await BrowserSession.start(persona(), config());
     expect(await session.back()).toMatch(/no previous page/);
+    expect(session.url).toBe(`${server.origin}/`);
   });
 
-  it("names a focused form field by its label", async () => {
+  it("waits for slow client-side navigation", async () => {
+    session = await BrowserSession.start(persona(), config());
+    await session.goto("/spa.html");
+    const result = await session.click(
+      refFor(await session.snapshot(), "link", "Slow client link"),
+    );
+    expect(result).toContain("/spa-done");
+  });
+
+  it("names a focused form field by its accessible name and ref", async () => {
     session = await BrowserSession.start(persona(), config());
     await session.fill(refFor(await session.snapshot(), "textbox", "Name"), "Ana");
     const focused = (await session.snapshot()).split("\n").find((l) => l.startsWith("Focused:"));
-    expect(focused).toBe('Focused: input "Name"');
+    expect(focused).toMatch(/^Focused: textbox "Name" \[ref=[a-z0-9]+\](: Ana)?$/);
+  });
+
+  it("reports no focus on a fresh page", async () => {
+    session = await BrowserSession.start(persona(), config());
+    expect((await session.snapshot()).split("\n")[0]).toBe("Focused: none");
   });
 
   it("rejects unknown keys", async () => {
