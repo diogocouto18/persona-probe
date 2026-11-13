@@ -8,6 +8,8 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       include: ["src/**"],
+      // cli.ts runs as a child process in test/cli.test.ts, which v8 coverage cannot see.
+      exclude: ["src/cli.ts"],
       thresholds: { lines: 80, functions: 80, branches: 80, statements: 80 },
     },
   },

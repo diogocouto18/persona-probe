@@ -147,6 +147,55 @@ describe("BrowserSession", () => {
     expect(snap.length).toBeLessThanOrEqual(SNAPSHOT_CAP + "\n… [snapshot truncated]".length);
   });
 
+  it("closes popups and keeps the main page", async () => {
+    session = await BrowserSession.start(persona(), config());
+    const result = await session.click(refFor(await session.snapshot(), "link", "Open in new tab"));
+    expect(result).toContain("blocked: popup closed");
+    expect(session.url.startsWith(server.origin)).toBe(true);
+  });
+
+  it("blocks off-origin subresources and reports it", async () => {
+    session = await BrowserSession.start(persona(), config());
+    const result = await session.goto("/");
+    expect(result).toContain("blocked: off-origin request to http://evil.test");
+  });
+
+  it("allows writes only on allowed paths", async () => {
+    session = await BrowserSession.start(persona(), config({ allowWritePaths: ["/api/**"] }));
+    await session.click(refFor(await session.snapshot(), "button", "Send"));
+    expect(server.requests.some((r) => r.method === "POST")).toBe(true);
+  });
+
+  it("explains when there is no previous page", async () => {
+    session = await BrowserSession.start(persona(), config());
+    expect(await session.back()).toMatch(/no previous page/);
+  });
+
+  it("names a focused form field by its label", async () => {
+    session = await BrowserSession.start(persona(), config());
+    await session.fill(refFor(await session.snapshot(), "textbox", "Name"), "Ana");
+    const focused = (await session.snapshot()).split("\n").find((l) => l.startsWith("Focused:"));
+    expect(focused).toBe('Focused: input "Name"');
+  });
+
+  it("rejects unknown keys", async () => {
+    session = await BrowserSession.start(persona(), config());
+    await expect(session.press("NotARealKey")).rejects.toThrow(/cannot press/);
+  });
+
+  it("rejects fill on a stale ref", async () => {
+    session = await BrowserSession.start(persona(), config());
+    await expect(session.fill("e9999", "x")).rejects.toThrow(/call snapshot again/);
+  });
+
+  it("applies reduced motion and touch settings", async () => {
+    session = await BrowserSession.start(
+      persona({ input: ["touch"], touch: true, reducedMotion: true }),
+      config(),
+    );
+    expect(await session.snapshot()).toContain("Welcome to the fixture");
+  });
+
   it("takes a PNG screenshot", async () => {
     session = await BrowserSession.start(persona(), config());
     const png = await session.screenshot();

@@ -9,6 +9,20 @@ const ACTION_TIMEOUT_MS = 5_000;
 const NAV_TIMEOUT_MS = 15_000;
 const NAV_WINDOW_MS = 600;
 
+/**
+ * Runs in the page: describes the focused element as `role "name"`. Kept as a
+ * string because it executes in the browser, not in Node.
+ */
+const FOCUS_SCRIPT = `(() => {
+  const el = document.activeElement;
+  if (!el || el === document.body) return "none";
+  const label = el.labels && el.labels[0] ? el.labels[0].textContent : "";
+  const role = el.getAttribute("role") || el.tagName.toLowerCase();
+  const name = (el.getAttribute("aria-label") || label || el.textContent || el.getAttribute("name") || el.id || "")
+    .trim().replace(/\\s+/g, " ").slice(0, 80);
+  return role + ' "' + name + '"';
+})()`;
+
 export interface SessionConfig {
   target: URL;
   allowOrigins: string[];
@@ -197,22 +211,7 @@ export class BrowserSession {
 
   async snapshot(): Promise<string> {
     await this.settle();
-    const focused = await this.page.evaluate(() => {
-      const el = document.activeElement;
-      if (!el || el === document.body) return "none";
-      const role = el.getAttribute("role") ?? el.tagName.toLowerCase();
-      const name = (
-        el.getAttribute("aria-label") ??
-        el.textContent ??
-        el.getAttribute("name") ??
-        el.id ??
-        ""
-      )
-        .trim()
-        .replace(/\s+/g, " ")
-        .slice(0, 80);
-      return `${role} "${name}"`;
-    });
+    const focused = await this.page.evaluate<string>(FOCUS_SCRIPT);
     const aria = await this.page.ariaSnapshot({ mode: "ai" });
     const text = [
       `Focused: ${focused}`,
