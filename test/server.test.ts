@@ -4,7 +4,8 @@ import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { BrowserSession } from "../src/browser.js";
 import { builtInPersonaDir } from "../src/personas.js";
 import { createServer } from "../src/server.js";
 import { startFixtureServer, type FixtureServer } from "./helpers/fixture-server.js";
@@ -168,6 +169,25 @@ describe("MCP server", () => {
     const second = await call("start_persona", { name: "impatient-mobile" });
     expect(text(second)).toContain("Impatient mobile user");
     expect(text(await call("tap", { ref: "e9999" }))).toMatch(/call snapshot again/);
+  });
+
+  it("passes the snapshot part through", async () => {
+    await call("start_persona", { name: "first-timer" });
+    expect(text(await call("snapshot", { part: 99 }))).toMatch(/no part 99/);
+  });
+
+  it("serializes parallel tool calls so no browser is leaked", async () => {
+    const closeSpy = vi.spyOn(BrowserSession.prototype, "close");
+    try {
+      await Promise.all([
+        call("start_persona", { name: "first-timer" }),
+        call("start_persona", { name: "keyboard-only" }),
+      ]);
+      await call("finish_persona", { summary: "done" });
+      expect(closeSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      closeSpy.mockRestore();
+    }
   });
 
   it("refuses screenshot paths outside the shots folder in findings", async () => {

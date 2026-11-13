@@ -63,13 +63,22 @@ export async function createServer(cfg: ServerConfig): Promise<McpServer> {
     await current?.session.close();
   }
 
+  // Tool calls run one at a time: clients may call tools in parallel, but there is one
+  // browser session and one step budget.
+  let queue: Promise<unknown> = Promise.resolve();
+  function handle(tool: string, args: unknown, body: () => Promise<ToolReply>): Promise<ToolReply> {
+    const run = queue.then(() => handleNow(tool, args, body));
+    queue = run.catch(() => {});
+    return run;
+  }
+
   /** Runs a tool body, records it in the transcript, and turns expected errors into replies. */
-  async function handle(
+  async function handleNow(
     tool: string,
     args: unknown,
     body: () => Promise<ToolReply>,
   ): Promise<ToolReply> {
-    const persona = active?.persona.name ?? "none";
+    const before = active?.persona.name;
     let out: ToolReply;
     try {
       out = await body();
@@ -81,6 +90,7 @@ export async function createServer(cfg: ServerConfig): Promise<McpServer> {
         out = errorReply(`internal error in ${tool}: ${(err as Error).message.split("\n")[0]}`);
       }
     }
+    const persona = before ?? active?.persona.name ?? "none";
     const textOnly = out.content.filter((c) => c.type === "text");
     await store
       .appendTranscript(persona, {
@@ -140,8 +150,16 @@ export async function createServer(cfg: ServerConfig): Promise<McpServer> {
 
   server.registerTool(
     "snapshot",
-    { description: "Accessibility snapshot of the current page with element refs." },
-    async () => handle("snapshot", {}, async () => reply(await requireActive().session.snapshot())),
+    {
+      description:
+        "Accessibility snapshot of the current page with element refs. Long pages are split " +
+        "into parts; pass part=2, 3, … to read further.",
+      inputSchema: { part: z.number().int().min(1).max(100).optional() },
+    },
+    async ({ part }) =>
+      handle("snapshot", { part }, async () =>
+        reply(await requireActive().session.snapshot(part ?? 1)),
+      ),
   );
 
   const refSchema = { ref: z.string().regex(/^[a-z0-9]{1,16}$/) };

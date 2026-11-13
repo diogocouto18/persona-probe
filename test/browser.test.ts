@@ -139,12 +139,26 @@ describe("BrowserSession", () => {
     await expect(session.goto("//evil.test")).rejects.toThrow(ToolUseError);
   });
 
-  it("caps very large snapshots", async () => {
+  it("caps very large snapshots at a line boundary and pages the rest", async () => {
     session = await BrowserSession.start(persona(), config());
     await session.goto("/big.html");
-    const snap = await session.snapshot();
-    expect(snap.endsWith("[snapshot truncated]")).toBe(true);
-    expect(snap.length).toBeLessThanOrEqual(SNAPSHOT_CAP + "\n… [snapshot truncated]".length);
+    const first = await session.snapshot();
+    const lines = first.split("\n");
+    const marker = lines[lines.length - 1] ?? "";
+    expect(marker).toMatch(/^… \[snapshot truncated — call snapshot with part=2 for more\]$/);
+    expect(first.length - marker.length - 1).toBeLessThanOrEqual(SNAPSHOT_CAP);
+    // Every element line is complete: no ref cut in half.
+    for (const line of lines.slice(0, -1)) {
+      if (line.includes("[ref=")) expect(line).toMatch(/\[ref=[a-z0-9]+\]/);
+    }
+    let all = first;
+    let part = 2;
+    while (all.includes(`part=${part} for more`) && part < 50) {
+      all += await session.snapshot(part);
+      part += 1;
+    }
+    expect(all).toContain("Action button number 1499");
+    expect(await session.snapshot(part + 5)).toMatch(/no part \d+/);
   });
 
   it("closes popups and keeps the main page", async () => {
@@ -190,7 +204,19 @@ describe("BrowserSession", () => {
 
   it("reports no focus on a fresh page", async () => {
     session = await BrowserSession.start(persona(), config());
-    expect((await session.snapshot()).split("\n")[0]).toBe("Focused: none");
+    const lines = (await session.snapshot()).split("\n");
+    expect(lines.find((l) => l.startsWith("Focused:"))).toBe("Focused: none");
+  });
+
+  it("finds focus on a top-level element and ignores [active] inside page text", async () => {
+    session = await BrowserSession.start(persona(), config());
+    await session.goto("/autofocus.html");
+    const lines = (await session.snapshot()).split("\n");
+    const focused = lines.find((l) => l.startsWith("Focused:"));
+    expect(focused).toMatch(/^Focused: button "Top button" \[ref=[a-z0-9]+\]$/);
+    expect(lines.indexOf("[untrusted page content below]")).toBeLessThan(
+      lines.findIndex((l) => l.startsWith("Focused:")),
+    );
   });
 
   it("rejects unknown keys", async () => {

@@ -1,4 +1,5 @@
-import { execFile, execFileSync } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -52,6 +53,53 @@ describe("cli", () => {
   it("rejects unknown commands", async () => {
     await expect(run(process.execPath, [cli, "nope"])).rejects.toMatchObject({ code: 2 });
   });
+
+  it("exits and closes the browser when the client closes stdin", async () => {
+    const child = spawn(process.execPath, [cli, "mcp", "--url", site.origin, "--out", tmpdir()], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    const lines: string[] = [];
+    let buffer = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      buffer += chunk.toString();
+      const parts = buffer.split("\n");
+      buffer = parts.pop() ?? "";
+      lines.push(...parts.filter(Boolean));
+    });
+    const send = (msg: unknown) => child.stdin.write(JSON.stringify(msg) + "\n");
+    send({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "t", version: "0" },
+      },
+    });
+    send({ jsonrpc: "2.0", method: "notifications/initialized" });
+    send({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "start_persona", arguments: { name: "first-timer" } },
+    });
+    const deadline = Date.now() + 30_000;
+    while (!lines.some((l) => l.includes('"id":2')) && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    expect(lines.some((l) => l.includes('"id":2'))).toBe(true);
+    const exited = new Promise<number | null>((resolve) =>
+      child.on("exit", (code) => resolve(code)),
+    );
+    child.stdin.end();
+    const code = await Promise.race([
+      exited,
+      new Promise<"timeout">((r) => setTimeout(() => r("timeout"), 10_000)),
+    ]);
+    if (code === "timeout") child.kill("SIGKILL");
+    expect(code).toBe(0);
+  }, 60_000);
 
   it("serves MCP over stdio", async () => {
     const transport = new StdioClientTransport({

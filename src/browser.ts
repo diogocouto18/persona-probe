@@ -1,25 +1,59 @@
-import { chromium, type Browser, type BrowserContext, type Locator, type Page } from "playwright";
+import {
+  chromium,
+  type APIResponse,
+  type Browser,
+  type BrowserContext,
+  type Locator,
+  type Page,
+  type Route,
+} from "playwright";
 import { GuardError, isAllowedOrigin, resolveSamePath, writeDecision } from "./guards.js";
 import { isToolAllowed, type ActionTool, type Persona } from "./personas.js";
 
 /** Maximum characters returned by snapshot() before truncation. */
 export const SNAPSHOT_CAP = 12_000;
-const TRUNCATED = "\n… [snapshot truncated]";
 const ACTION_TIMEOUT_MS = 5_000;
 const NAV_TIMEOUT_MS = 15_000;
 const NAV_WINDOW_MS = 600;
 /** Max wait for the network to go quiet after an action (covers slow client-side routing). */
 const IDLE_TIMEOUT_MS = 5_000;
 const QUIET_MS = 300;
+const MAX_REDIRECT_HOPS = 10;
+
+/** Splits text into chunks of whole lines, each at most `max` characters (long lines are cut). */
+function splitLines(text: string, max: number): string[] {
+  const chunks: string[] = [];
+  let current = "";
+  for (const raw of text.split("\n")) {
+    const line = raw.length > max ? raw.slice(0, max) : raw;
+    if (current && current.length + 1 + line.length > max) {
+      chunks.push(current);
+      current = line;
+    } else {
+      current = current ? `${current}\n${line}` : line;
+    }
+  }
+  chunks.push(current);
+  return chunks;
+}
+
+function wsToHttp(url: string): string {
+  return url.replace(/^ws(s?):/, "http$1:");
+}
+
+/** True when the document itself (not a control) has focus. Runs in the page. */
+const NOTHING_FOCUSED = "!document.activeElement || document.activeElement === document.body";
 
 /**
- * Finds the focused element in an AI-mode aria snapshot, which marks it with
- * `[active]`. The top-level node is marked when nothing has focus.
+ * Finds the focused element in an AI-mode aria snapshot, which marks it with an
+ * `[active]` attribute. Quoted names are ignored so page text cannot fake the marker.
  */
 export function focusedFromSnapshot(aria: string): string {
-  const active = aria.split("\n").filter((l) => l.includes("[active]"));
+  const active = aria
+    .split("\n")
+    .filter((l) => l.replace(/"(?:[^"\\]|\\.)*"/g, '""').includes("[active]"));
   const line = active[active.length - 1];
-  if (!line || /^- /.test(line)) return "none";
+  if (!line) return "none";
   return line
     .trim()
     .replace(/^- /, "")
@@ -93,7 +127,7 @@ export class BrowserSession {
       const page = await context.newPage();
       const session = new BrowserSession(persona, cfg, browser, context, page);
       await session.installGuards();
-      await page.goto(cfg.target.href, { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS });
+      await session.openTarget();
       return session;
     } catch (err) {
       await browser.close();
@@ -101,20 +135,84 @@ export class BrowserSession {
     }
   }
 
+  private allowedOrigins(): string[] {
+    return [this.cfg.target.origin, ...this.cfg.allowOrigins];
+  }
+
+  /** Blocks an off-origin request: navigations get a 204 so the current page stays. */
+  private blockOffOrigin(route: Route, url: string): Promise<void> {
+    if (route.request().isNavigationRequest()) {
+      this.notice(`blocked: off-origin navigation to ${originOf(url)}`);
+      return route.fulfill({ status: 204 });
+    }
+    this.notice(`blocked: off-origin request to ${originOf(url)}`);
+    return route.abort("blockedbyclient");
+  }
+
+  /** Loads the target; refuses to start if it is unreachable or leaves the allowed origins. */
+  private async openTarget(): Promise<void> {
+    const href = this.cfg.target.href;
+    try {
+      await this.page.goto(href, { waitUntil: "domcontentloaded", timeout: NAV_TIMEOUT_MS });
+    } catch (err) {
+      const blocked = this.notices.find((n) => n.startsWith("blocked: off-origin navigation"));
+      if (blocked) {
+        throw new ToolUseError(
+          `target ${href} redirects off-origin (${blocked}); refusing to start`,
+        );
+      }
+      throw new ToolUseError(
+        `cannot open target ${href}: ${(err as Error).message.split("\n")[0]}`,
+      );
+    }
+  }
+
+  /**
+   * Follows a redirect chain without letting the browser do it, and returns the first
+   * hop outside the allowed origins (or undefined if the chain stays inside).
+   * Hops after the first are requested once here and again by the browser.
+   */
+  private async firstOffOriginHop(
+    route: Route,
+    url: string,
+    first: APIResponse,
+    allowed: string[],
+  ): Promise<string | undefined> {
+    let current = url;
+    let response = first;
+    for (let hop = 0; hop < MAX_REDIRECT_HOPS; hop++) {
+      const location = response.headers()["location"];
+      if (response.status() < 300 || response.status() >= 400 || !location) return undefined;
+      let next: string;
+      try {
+        next = new URL(location, current).href;
+      } catch {
+        return location;
+      }
+      if (!isAllowedOrigin(next, allowed)) return next;
+      current = next;
+      try {
+        response = await route.fetch({
+          url: next,
+          method: "GET",
+          maxRedirects: 0,
+          timeout: NAV_TIMEOUT_MS,
+        });
+      } catch {
+        return undefined;
+      }
+    }
+    return current;
+  }
+
   private async installGuards(): Promise<void> {
-    const allowed = [this.cfg.target.origin, ...this.cfg.allowOrigins];
+    const allowed = this.allowedOrigins();
     await this.context.route("**/*", async (route) => {
       const req = route.request();
       const url = req.url();
-      if (!isAllowedOrigin(url, allowed)) {
-        if (req.isNavigationRequest()) {
-          this.notice(`blocked: off-origin navigation to ${originOf(url)}`);
-          // 204 on a navigation keeps the current page instead of showing an error page.
-          return route.fulfill({ status: 204 });
-        }
-        this.notice(`blocked: off-origin request to ${originOf(url)}`);
-        return route.abort("blockedbyclient");
-      }
+      // WebSocket handshakes are guarded by routeWebSocket below.
+      if (/^wss?:/.test(url)) return route.fallback();
+      if (!isAllowedOrigin(url, allowed)) return this.blockOffOrigin(route, url);
       const decision = writeDecision(
         {
           method: req.method(),
@@ -132,8 +230,32 @@ export class BrowserSession {
           body: "Blocked by persona-probe write guard",
         });
       }
-      return route.continue();
+      // Playwright only routes the first request of a redirect chain, so the whole chain
+      // is resolved here hop by hop and refused if any hop leaves the allowed origins.
+      let response: APIResponse;
+      try {
+        response = await route.fetch({ maxRedirects: 0, timeout: NAV_TIMEOUT_MS });
+      } catch {
+        return route.abort("failed").catch(() => {});
+      }
+      const offOrigin = await this.firstOffOriginHop(route, url, response, allowed);
+      if (offOrigin) return this.blockOffOrigin(route, offOrigin);
+      return route.fulfill({ response });
     });
+    // WebSockets never reach a server: off-origin ones are refused, same-origin ones are
+    // answered by an in-page mock. (Chromium cannot open real sockets from documents
+    // served through route.fulfill, which the redirect check above requires.)
+    await this.context.routeWebSocket(
+      () => true,
+      (ws) => {
+        if (!isAllowedOrigin(wsToHttp(ws.url()), allowed)) {
+          this.notice(`blocked: off-origin websocket to ${originOf(ws.url())}`);
+          return ws.close({ code: 1008, reason: "blocked by persona-probe" });
+        }
+        this.notice(`blocked: websocket to ${new URL(ws.url()).pathname} (not supported)`);
+        ws.onMessage(() => {});
+      },
+    );
     this.context.on("page", (popup) => {
       if (popup !== this.page) {
         this.notice("blocked: popup closed");
@@ -242,16 +364,28 @@ export class BrowserSession {
     }
   }
 
-  async snapshot(): Promise<string> {
+  /**
+   * Accessibility snapshot of the page. Long snapshots are split at line
+   * boundaries into parts of at most SNAPSHOT_CAP characters; `part` selects one.
+   */
+  async snapshot(part = 1): Promise<string> {
     await this.settle();
     const aria = await this.page.ariaSnapshot({ mode: "ai" });
-    const text = [
-      `Focused: ${focusedFromSnapshot(aria)}`,
+    const nothingFocused = await this.page.evaluate<boolean>(NOTHING_FOCUSED);
+    const header = [
       `URL: ${this.page.url()}`,
       "[untrusted page content below]",
-      aria,
-    ].join("\n");
-    return text.length > SNAPSHOT_CAP ? text.slice(0, SNAPSHOT_CAP) + TRUNCATED : text;
+      `Focused: ${nothingFocused ? "none" : focusedFromSnapshot(aria)}`,
+    ];
+    const parts = splitLines(aria, SNAPSHOT_CAP - header.join("\n").length - 1);
+    const body = parts[part - 1];
+    if (body === undefined)
+      return `${header[0]}\nno part ${part}: this snapshot has ${parts.length}`;
+    const lines = [...header, body];
+    if (part < parts.length) {
+      lines.push(`… [snapshot truncated — call snapshot with part=${part + 1} for more]`);
+    }
+    return lines.join("\n");
   }
 
   async click(ref: string): Promise<string> {

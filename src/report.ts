@@ -61,11 +61,11 @@ export function rank(items: MergedFinding[]): MergedFinding[] {
 /** Escapes untrusted text for safe inclusion in Markdown (including table cells). */
 export function escapeMd(text: string): string {
   return text
+    .replace(/\\/g, "\\\\")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/`/g, "\\`")
-    .replace(/\|/g, "\\|")
+    .replace(/[`|[\]()!*_#~]/g, "\\$&")
     .replace(/\r?\n/g, " ");
 }
 

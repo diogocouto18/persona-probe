@@ -74,7 +74,10 @@ described in a prompt.
   server starts; no tool can change it. `goto` accepts same-origin paths only.
 - **Origin allowlist enforced in the browser context** (request routing):
   top-level navigation and requests to other origins are blocked; third-party
-  assets only via explicit `--allow-origin`. Downloads disabled; popups/new tabs
+  assets only via explicit `--allow-origin`. Every redirect hop is checked (the
+  chain is resolved in the route handler, since the browser does not route
+  later hops). WebSockets never reach a server: off-origin ones are refused,
+  same-origin ones get an in-page stub. Downloads disabled; popups/new tabs
   closed.
 - **Production guard:** non-loopback targets require `--i-own-this-site`, else
   the server refuses to start.

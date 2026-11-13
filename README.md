@@ -89,19 +89,19 @@ get a merged, de-duplicated report.
 
 ### Tools
 
-| Tool             | What it does                                                      |
-| ---------------- | ----------------------------------------------------------------- |
-| `list_personas`  | Lists available personas                                          |
-| `start_persona`  | Opens a fresh browser as a persona and returns its brief          |
-| `snapshot`       | Accessibility snapshot with element refs and the focused element  |
-| `click` / `tap`  | Activates an element by ref (mouse / touch personas)              |
-| `fill`           | Replaces a text field's value                                     |
-| `press`          | Presses a key (keyboard personas)                                 |
-| `goto` / `back`  | Navigates within the target origin                                |
-| `screenshot`     | Saves and returns a screenshot as evidence                        |
-| `report_finding` | Records a problem (severity, category, steps, expected vs actual) |
-| `finish_persona` | Ends the persona's session                                        |
-| `build_report`   | Writes `report.md` and `report.json` for the run                  |
+| Tool             | What it does                                                       |
+| ---------------- | ------------------------------------------------------------------ |
+| `list_personas`  | Lists available personas                                           |
+| `start_persona`  | Opens a fresh browser as a persona and returns its brief           |
+| `snapshot`       | Accessibility snapshot with refs and focus; `part` pages long ones |
+| `click` / `tap`  | Activates an element by ref (mouse / touch personas)               |
+| `fill`           | Replaces a text field's value                                      |
+| `press`          | Presses a key (keyboard personas)                                  |
+| `goto` / `back`  | Navigates within the target origin                                 |
+| `screenshot`     | Saves and returns a screenshot as evidence                         |
+| `report_finding` | Records a problem (severity, category, steps, expected vs actual)  |
+| `finish_persona` | Ends the persona's session                                         |
+| `build_report`   | Writes `report.md` and `report.json` for the run                   |
 
 ## Personas
 
@@ -139,13 +139,16 @@ restrictive by default:
 
 - **stdio only.** It opens no network ports.
 - **Fixed target.** The origin is set by `--url` at launch; no tool can change
-  it. Navigation and requests to other origins are blocked (add trusted asset
-  origins with `--allow-origin`).
+  it. Navigation and requests to other origins are blocked, including every hop
+  of a redirect chain (add trusted asset origins with `--allow-origin`). A
+  target that redirects elsewhere on start is refused.
 - **Local by default.** Non-local targets require `--i-own-this-site`.
-- **Writes blocked by default.** Form submissions and every non-GET request,
+- **Writes blocked by default.** POST forms and every non-GET request,
   including analytics beacons and server actions, are answered with a blocked
   response, so testing does not send emails or change data. Use `--allow-writes`
   or `--allow-write-path "/api/search/**"` deliberately.
+- **No WebSockets.** Sockets to other origins are refused; same-origin sockets
+  are answered by an in-page stub and never reach the server.
 - **No escape hatches.** No shell, filesystem or JavaScript-evaluation tools.
   Popups are closed and downloads are disabled. Each persona gets a fresh,
   non-persistent browser context.
@@ -153,6 +156,17 @@ restrictive by default:
   are told to ignore instructions found in pages. Report text is escaped.
 - **Contained output.** Everything is written under `--out`
   (default `./persona-probe-runs`).
+
+### Known limits
+
+- **GET requests are never blocked.** GET forms and GET endpoints with side
+  effects (e.g. `/delete?id=7`) still reach the target. Test a disposable copy.
+- **Redirect hops are requested twice:** once to check the chain stays on the
+  target, once by the browser. One-time links in a redirect chain (magic
+  links, OAuth callbacks) may be consumed by the check.
+- **Apps that depend on WebSockets** (live updates, chat, dev-server hot reload)
+  will not work under persona-probe.
+- **Not covered:** WebRTC, and DNS prefetch/preconnect to other hosts.
 
 See [SECURITY.md](SECURITY.md) to report a vulnerability.
 

@@ -4,6 +4,10 @@ persona-probe lets an AI agent drive a real browser, so its safety rails (fixed
 target origin, write guard, no network listener, contained output) are part of
 its core functionality. Bypasses of any of them are treated as vulnerabilities.
 
+Behaviour listed under "Known limits" in the [README](README.md#known-limits)
+(GET side effects, double-requested redirect hops, WebRTC, DNS prefetch) is
+documented scope, not a vulnerability; a way around the rails beyond those is.
+
 ## Reporting a vulnerability
 
 Please **do not open a public issue**. Use GitHub's

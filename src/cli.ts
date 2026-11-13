@@ -117,11 +117,17 @@ async function main(argv: string[]): Promise<void> {
       });
       await server.connect(new StdioServerTransport());
       process.stderr.write(`persona-probe ${VERSION}: MCP server ready for ${target.origin}\n`);
+      let closing = false;
       const shutdown = () => {
+        if (closing) return;
+        closing = true;
         void server.close().finally(() => process.exit(0));
       };
       process.on("SIGINT", shutdown);
       process.on("SIGTERM", shutdown);
+      // The stdio transport does not notice a client that goes away; stdin closing does.
+      process.stdin.on("end", shutdown);
+      process.stdin.on("close", shutdown);
       return;
     }
     default:
