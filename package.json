@@ -1,0 +1,58 @@
+{
+  "name": "persona-probe",
+  "version": "0.1.0",
+  "description": "Let your own AI agent explore a web app as different personas through a locked-down browser, and get a ranked report of what they found.",
+  "license": "MIT",
+  "author": "Diogo Couto",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "bin": {
+    "persona-probe": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "personas",
+    "LICENSE",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/diogocouto18/persona-probe.git"
+  },
+  "keywords": [
+    "mcp",
+    "playwright",
+    "accessibility",
+    "usability",
+    "testing",
+    "personas",
+    "ai-agents"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "playwright": "1.65.0",
+    "yaml": "2.9.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "22.20.5",
+    "@vitest/coverage-v8": "5.1.0",
+    "eslint": "10.14.0",
+    "prettier": "3.10.1",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.2",
+    "vitest": "5.1.0"
+  }
+}

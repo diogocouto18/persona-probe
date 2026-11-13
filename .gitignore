@@ -4,3 +4,4 @@ coverage/
 persona-probe-runs/
 .local/
 .superpowers/
+.claude/
