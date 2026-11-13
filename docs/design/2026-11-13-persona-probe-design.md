@@ -1,6 +1,6 @@
 # persona-probe — Design
 
-Date: 2026-11-13 · Status: draft, awaiting approval
+Date: 2026-11-13 · Status: approved, v1 implemented
 
 ## 1. Intent
 
@@ -15,14 +15,13 @@ client), running on the user's own subscription. persona-probe itself never
 calls an LLM, so it costs the maintainer and the user nothing beyond the
 subscription they already pay for.
 
-Why: a public portfolio project on `github.com/diogocouto18`, validated on a
-real app (dev-hub) rather than a toy. It is informed by a security audit of four
-existing persona-playtesting repos (playtest-lab, playtest-agent, plai_testr,
-playtester), all safe but carrying avoidable design risks; this tool should be
-the one that gets those right.
+Why: a public portfolio project, validated on a real app rather than a toy. It
+was designed after reviewing existing open-source persona-playtesting tools,
+with a security-first take on the same idea: no network listeners, a fixed
+target, writes blocked by default.
 
-Key lesson borrowed from prior art: **persona variety matters more than agent
-cleverness** (playtest-agent reported bug recall going from 0.38 to 1.0 just by
+Key lesson from prior art: **persona variety matters more than agent
+cleverness** (one tool reported bug recall going from 0.38 to 1.0 just by
 rotating personas). So persona constraints are enforced in code, not just
 described in a prompt.
 
@@ -44,8 +43,8 @@ described in a prompt.
    actual, URL, screenshot), de-duplicated across personas and ranked.
 6. First real validation: three personas (first-timer, keyboard-only,
    impatient-mobile) against a **local** dev-hub (`http://localhost:3000`),
-   **public pages only**, driven by Diogo's Claude Code, producing findings he
-   judges useful.
+   **public pages only**, driven by Claude Code, producing findings a human
+   reviewer judges useful.
 
 ## 3. Non-goals (v1)
 
@@ -69,6 +68,7 @@ described in a prompt.
 ## 5. Constraints
 
 ### Security (first-class)
+
 - **stdio only.** No HTTP/TCP listener anywhere in the product.
 - **Target fixed at launch, not by the agent.** `--url` sets the origin when the
   server starts; no tool can change it. `goto` accepts same-origin paths only.
@@ -96,6 +96,7 @@ described in a prompt.
   for a run (e.g. Claude Code `--allowedTools "mcp__persona-probe__*"`).
 
 ### Persona enforcement in code
+
 - Each persona declares `input: [keyboard | mouse | touch]`. Tools outside the
   persona's modes return "not available for this persona" (keyboard-only gets
   no `click`/`tap`; mobile gets `tap`, not `click`).
@@ -103,28 +104,29 @@ described in a prompt.
   exhausted, call finish_persona".
 
 ### Scalability / token use
+
 - One active persona per MCP connection in v1; browser context closed on
   `finish_persona` or disconnect.
 - Snapshots trimmed (interactive subtree first, length cap) to keep the agent's
   token use on the user's subscription reasonable.
 - Findings appended to disk as they arrive; reports built from disk.
 
-### Public repo conventions
-MIT (`LICENSE`, © 2026 Diogo Couto); default branch `master`; commit identity
-`Diogo Couto <diogomncouto@gmail.com>`; no AI-attribution trailers or footers
-anywhere in the repo; English only. Node ≥ 20, TypeScript, ESM.
+### Repository
+
+MIT license; default branch `master`; English only. Node ≥ 22.12 (Node 20 is
+end-of-life), TypeScript, ESM.
 
 ## 6. Approaches considered
 
-| Approach | Trade-off |
-|---|---|
-| Standalone CLI calling the Anthropic API | Was picked first, then **dropped**: every run costs API money; Diogo wants zero cost, using the user's own AI. |
-| **A. Stdio MCP server, agent-agnostic** — **chosen for v1** | Zero cost, works with any MCP client, no network listener. Multi-persona orchestration left to the agent or the user. |
+| Approach                                                                                                                         | Trade-off                                                                                                             |
+| -------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Standalone CLI calling an LLM API                                                                                                | Considered first, then **dropped**: every run costs API money; the goal is zero cost, using the user's own AI.        |
+| **A. Stdio MCP server, agent-agnostic** — **chosen for v1**                                                                      | Zero cost, works with any MCP client, no network listener. Multi-persona orchestration left to the agent or the user. |
 | B. A + `persona-probe run` spawning the agent CLI headless (`claude -p` first) per persona, in parallel, restricted to our tools | One command, parallel personas, still zero cost. More work and per-CLI flags. **Planned right after v1**, built on A. |
-| Claude Code skill only | Locks users into one agent; rejected as the core, may come as a thin wrapper later. |
+| Claude Code skill only                                                                                                           | Locks users into one agent; rejected as the core, may come as a thin wrapper later.                                   |
 
-Decided by Diogo (2026-11-13): A in v1 then B; public repo; dev-hub public pages
-as first target; clone-based distribution, npm later.
+Decided (2026-11-13): A in v1 then B; the author's own site (dev-hub) as the
+first real target, public pages only; clone-based distribution, npm later.
 
 ## 7. Design
 
@@ -185,16 +187,14 @@ can launch a persona in one step. No shell, filesystem, or JS-evaluation tools.
 
 GitHub Actions: lint, typecheck, unit + integration (with Playwright Chromium)
 with coverage gate, secret scan (gitleaks), `npm audit`. Pre-push hook blocks
-pushes to `master`; changes via PRs. GitHub Actions on this account failed for
-billing on 2026-10-27; public repos normally run free, so confirm the first
-workflow actually runs.
+pushes to `master`; changes via PRs.
 
 ### 7.7 First validation on dev-hub
 
-Diogo runs dev-hub locally (`next dev`, `http://localhost:3000`, local
-Postgres), adds persona-probe to Claude Code with writes off, and runs
-first-timer, keyboard-only and impatient-mobile over public pages. He reviews
-the report; useful findings become dev-hub issues only with his OK.
+Run dev-hub locally (`next dev`, `http://localhost:3000`, local Postgres), add
+persona-probe to an MCP client with writes off, and run first-timer,
+keyboard-only and impatient-mobile over public pages. Review the report; useful
+findings become dev-hub issues after a human review.
 
 ## 8. Left to the builder
 
