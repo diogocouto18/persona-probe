@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Big page</title>
+  </head>
+  <body>
+    <main>
+      <h1>A very large page</h1>
+      <ul id="list"></ul>
+    </main>
+    <script>
+      const list = document.getElementById("list");
+      for (let i = 0; i < 1500; i++) {
+        const li = document.createElement("li");
+        const b = document.createElement("button");
+        b.textContent = "Action button number " + i;
+        li.appendChild(b);
+        list.appendChild(li);
+      }
+    </script>
+  </body>
+</html>
