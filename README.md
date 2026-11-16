@@ -49,7 +49,10 @@ npm run build
 ## Connect it to your agent
 
 The server is bound to **one target origin**, chosen when it starts. Use a local
-or staging copy of your app.
+or staging copy of your app, running a **production build** (for Next.js:
+`next build && next start`, not `next dev`). Dev servers rely on a hot-reload
+WebSocket that persona-probe blocks, and without it their pages may not respond
+to clicks at all; persona-probe flags this with a hint when it happens.
 
 **Claude Code**
 
@@ -165,7 +168,8 @@ restrictive by default:
   target, once by the browser. One-time links in a redirect chain (magic
   links, OAuth callbacks) may be consumed by the check.
 - **Apps that depend on WebSockets** (live updates, chat, dev-server hot reload)
-  will not work under persona-probe.
+  will not work under persona-probe. Dev servers are the common case: test a
+  production build instead.
 - **Not covered:** WebRTC, and DNS prefetch/preconnect to other hosts.
 
 See [SECURITY.md](SECURITY.md) to report a vulnerability.

@@ -37,6 +37,31 @@ function splitLines(text: string, max: number): string[] {
   return chunks;
 }
 
+const DEV_SERVER_HINT =
+  "hint: this looks like a development server (hot-reload socket). Its JavaScript may " +
+  "not work without that socket, so buttons and menus can appear broken. Findings about " +
+  "unresponsive controls are unreliable here; test a production build instead.";
+
+/**
+ * True for WebSocket URLs used by dev-server hot reload (Next.js, webpack-dev-server,
+ * Vite). Dev clients often stop working without them, which persona-probe blocks.
+ */
+export function looksLikeDevServerSocket(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  const path = parsed.pathname;
+  return (
+    /^\/_next\/(webpack-)?hmr/.test(path) ||
+    path.startsWith("/sockjs-node") ||
+    path.startsWith("/@vite") ||
+    (path === "/" && parsed.searchParams.has("token"))
+  );
+}
+
 function wsToHttp(url: string): string {
   return url.replace(/^ws(s?):/, "http$1:");
 }
@@ -253,6 +278,7 @@ export class BrowserSession {
           return ws.close({ code: 1008, reason: "blocked by persona-probe" });
         }
         this.notice(`blocked: websocket to ${new URL(ws.url()).pathname} (not supported)`);
+        if (looksLikeDevServerSocket(ws.url())) this.notice(DEV_SERVER_HINT);
         ws.onMessage(() => {});
       },
     );

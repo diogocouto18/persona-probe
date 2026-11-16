@@ -124,6 +124,15 @@ describe("origin lock across redirects and sockets", () => {
     );
   });
 
+  it("hints that a hot-reload socket means a development server", async () => {
+    session = await BrowserSession.start(persona, config());
+    const wsUrl = `${target.origin.replace("http", "ws")}/_next/hmr`;
+    const result = await session.goto(`/ws-page?to=${encodeURIComponent(wsUrl)}`);
+    await settle();
+    expect(result).toContain("looks like a development server");
+    expect(result).toContain("production build");
+  });
+
   it.each([false, true])(
     "keeps same-origin WebSockets away from the server (allowWrites=%s)",
     async (allowWrites) => {
