@@ -4,6 +4,13 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # typescript-eslint does not support TypeScript 7 yet (peer range <6.1.0).
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+      # Types must match the oldest supported runtime (engines: node >=22.12).
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
