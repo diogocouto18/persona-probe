@@ -3,10 +3,12 @@ import {
   type APIResponse,
   type Browser,
   type BrowserContext,
+  type CDPSession,
   type Locator,
   type Page,
   type Route,
 } from "playwright";
+import { annotateUnnamed, resolveNames, unnamedInteractiveRefs } from "./axnames.js";
 import { GuardError, isAllowedOrigin, resolveSamePath, writeDecision } from "./guards.js";
 import { isToolAllowed, type ActionTool, type Persona } from "./personas.js";
 
@@ -129,6 +131,7 @@ export class BrowserSession {
   private notices: string[] = [];
   private steps = 0;
   private inFlight = 0;
+  private cdp: CDPSession | undefined;
 
   private constructor(
     private readonly persona: Persona,
@@ -396,7 +399,12 @@ export class BrowserSession {
    */
   async snapshot(part = 1): Promise<string> {
     await this.settle();
-    const aria = await this.page.ariaSnapshot({ mode: "ai" });
+    const raw = await this.page.ariaSnapshot({ mode: "ai" });
+    this.cdp ??= await this.context.newCDPSession(this.page);
+    const aria = annotateUnnamed(
+      raw,
+      await resolveNames(this.page, this.cdp, unnamedInteractiveRefs(raw)),
+    );
     const nothingFocused = await this.page.evaluate<boolean>(NOTHING_FOCUSED);
     const header = [
       `URL: ${this.page.url()}`,
