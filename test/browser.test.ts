@@ -219,6 +219,15 @@ describe("BrowserSession", () => {
     );
   });
 
+  it("shows the accessible name the browser computes, and flags real gaps", async () => {
+    session = await BrowserSession.start(persona(), config());
+    await session.goto("/cards.html");
+    const snap = await session.snapshot();
+    expect(snap).toMatch(/link "persona-probe Card description text" \[ref=[a-z0-9]+\]/);
+    expect(snap).toMatch(/button \[ref=[a-z0-9]+\] \[no accessible name\]/);
+    expect(snap).toMatch(/button "Close dialog" \[ref=[a-z0-9]+\]/);
+  });
+
   it("rejects unknown keys", async () => {
     session = await BrowserSession.start(persona(), config());
     await expect(session.press("NotARealKey")).rejects.toThrow(/cannot press/);

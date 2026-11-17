@@ -92,19 +92,19 @@ get a merged, de-duplicated report.
 
 ### Tools
 
-| Tool             | What it does                                                       |
-| ---------------- | ------------------------------------------------------------------ |
-| `list_personas`  | Lists available personas                                           |
-| `start_persona`  | Opens a fresh browser as a persona and returns its brief           |
-| `snapshot`       | Accessibility snapshot with refs and focus; `part` pages long ones |
-| `click` / `tap`  | Activates an element by ref (mouse / touch personas)               |
-| `fill`           | Replaces a text field's value                                      |
-| `press`          | Presses a key (keyboard personas)                                  |
-| `goto` / `back`  | Navigates within the target origin                                 |
-| `screenshot`     | Saves and returns a screenshot as evidence                         |
-| `report_finding` | Records a problem (severity, category, steps, expected vs actual)  |
-| `finish_persona` | Ends the persona's session                                         |
-| `build_report`   | Writes `report.md` and `report.json` for the run                   |
+| Tool             | What it does                                                                               |
+| ---------------- | ------------------------------------------------------------------------------------------ |
+| `list_personas`  | Lists available personas                                                                   |
+| `start_persona`  | Opens a fresh browser as a persona and returns its brief                                   |
+| `snapshot`       | Accessibility snapshot with refs, focus and browser-computed names; `part` pages long ones |
+| `click` / `tap`  | Activates an element by ref (mouse / touch personas)                                       |
+| `fill`           | Replaces a text field's value                                                              |
+| `press`          | Presses a key (keyboard personas)                                                          |
+| `goto` / `back`  | Navigates within the target origin                                                         |
+| `screenshot`     | Saves and returns a screenshot as evidence                                                 |
+| `report_finding` | Records a problem (severity, category, steps, expected vs actual)                          |
+| `finish_persona` | Ends the persona's session                                                                 |
+| `build_report`   | Writes `report.md` and `report.json` for the run                                           |
 
 ## Personas
 
@@ -171,6 +171,11 @@ restrictive by default:
   will not work under persona-probe. Dev servers are the common case: test a
   production build instead.
 - **Not covered:** WebRTC, and DNS prefetch/preconnect to other hosts.
+- **Accessible names** in snapshots come from Chromium's accessibility tree
+  (what screen readers announce), for up to 150 unnamed interactive elements
+  per snapshot; elements with none are marked `[no accessible name]`. To map
+  elements, persona-probe briefly adds and then removes a
+  `data-persona-probe-ax` attribute on them.
 
 See [SECURITY.md](SECURITY.md) to report a vulnerability.
 
